@@ -1,0 +1,473 @@
+npm create vite@latest .
+select react
+npm i 
+npm run dev
+
+exports.getSingleProduct = async(req,res,next) => {
+	 const product = await Product.findById(req.params.id);
+	 if(!product) {
+	 		return res.status(404).json({
+	 			success: false,
+	 			message: 'Product not found'
+	 		})
+	 }
+	 res.status(200).json({
+	 	success: true,
+	 	product
+	 })
+}
+
+exports.updateProduct = async (req, res, next) => {
+	let product = await Product.findById(req.params.id);
+	console.log(req.body)
+	if (!product) {
+		return res.status(404).json({
+			success: false,
+			message: 'Product not found'
+		})
+	}
+	product = await Product.findOneAndUpdate(req.param.id, req.body, {
+		new: true,
+	})
+	if (!product) {
+		return res.status(404).json({
+			success: false,
+			message: 'Product not updated'
+		})
+	}
+	res.status(200).json({
+		success: true,
+		product
+	})
+}
+
+exports.deleteProduct = async(req,res,next) => {
+	const product = await Product.findById(req.params.id);
+	if(!product) {
+	 		return res.status(404).json({
+	 			success: false,
+	 			message: 'Product not found'
+	 		})
+	 }
+	 await product.remove();
+	 res.status(200).json({
+	 	success: true,
+	 	message: 'Product deleted'
+	 })
+}
+
+router.get('/products', getProducts)
+router.post('/product/new',newProduct)
+router.get('/product/:id', getSingleProduct);
+router.route('/admin/product/:id').put(updateProduct).delete(deleteProduct);
+
+utils/apiFeatures.js
+class APIFeatures {
+    constructor(query, queryStr) {
+        this.query = query;
+        this.queryStr = queryStr;
+    }
+
+    search() {
+        const keyword = this.queryStr.keyword ? {
+            name: {
+                $regex: this.queryStr.keyword,
+                $options: 'i'
+            }
+        } : {}
+        console.log(keyword,this.query);
+        this.query = this.query.find({ ...keyword });
+        return this;
+    }
+
+    filter() {
+
+        const queryCopy = { ...this.queryStr };
+        console.log(queryCopy);
+        // Removing fields from the query
+        const removeFields = ['keyword', 'limit', 'page']
+        removeFields.forEach(el => delete queryCopy[el]);
+        
+        // Advance filter for price, ratings etc
+        let queryStr = JSON.stringify(queryCopy);
+        console.log(queryStr);
+        queryStr = queryStr.replace(/\b(gt|gte|lt|lte)\b/g, match => `$${match}`)
+
+        
+        this.query = this.query.find(JSON.parse(queryStr));
+        console.log(JSON.parse(queryStr));
+        return this;
+    }
+
+    pagination(resPerPage) {
+        const currentPage = Number(this.queryStr.page) || 1;
+        const skip = resPerPage * (currentPage - 1);
+
+        this.query = this.query.limit(resPerPage).skip(skip);
+        return this;
+    }
+}
+
+
+export default APIFeatures
+
+exports.getProducts = catchAsyncErrors(async (req,res,next) => {
+	
+	const resPerPage = 4;
+	const productsCount = await Product.countDocuments();
+	const apiFeatures = new APIFeatures(Product.find(),req.query).search().filter(); 
+
+	// const products = await Product.find();
+	apiFeatures.pagination(resPerPage);
+	const products = await apiFeatures.query;
+	res.status(200).json({
+		success: true,
+		count: products.length,
+		productsCount,
+		products
+	})
+})
+//search
+http://localhost:4001/api/v1/products?keyword=apple
+products?keyword=apple&price[gte]=1&price[lte]=200
+
+models/userconst mongoose = require('mongoose');
+const validator = require('validator');
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
+const crypto = require('crypto')
+
+const userSchema = new mongoose.Schema({
+    name: {
+        type: String,
+        required: [true, 'Please enter your name'],
+        maxLength: [30, 'Your name cannot exceed 30 characters']
+    },
+    email: {
+        type: String,
+        required: [true, 'Please enter your email'],
+        unique: true,
+        validate: [validator.isEmail, 'Please enter valid email address']
+    },
+    password: {
+        type: String,
+        required: [true, 'Please enter your password'],
+        minlength: [6, 'Your password must be longer than 6 characters'],
+        select: false
+    },
+    avatar: {
+        public_id: {
+            type: String,
+            required: true
+        },
+        url: {
+            type: String,
+            required: true
+        }
+    },
+    role: {
+        type: String,
+        default: 'user'
+    },
+    createdAt: {
+        type: Date,
+        default: Date.now
+    },
+    resetPasswordToken: String,
+    resetPasswordExpire: Date
+
+})
+
+
+ userSchema.pre('save', async function (next) {
+     if (!this.isModified('password')) {
+         next()
+  	}
+
+     this.password = await bcrypt.hash(this.password, 10)
+ });
+
+module.exports = mongoose.model('User', userSchema);
+
+authController
+const User = require('../models/user');
+
+const ErrorHandler = require('../utils/errorHandler');
+
+exports.registerUser = async (req, res, next) => {
+	const { name, email, password } = req.body;
+	 const user = await User.create({
+        name,
+        email,
+        password,
+        avatar: {
+            public_id: 'avatars/sxamgzs1aj91rqahehqe',
+            url: 'https://res.cloudinary.com/dgneiaky7/image/upload/v1649818466/avatars/sxamgzs1aj91rqahehqe.png'
+        }
+    })
+	 //test token
+	 // const token = user.getJwtToken();
+	 
+	  res.status(201).json({
+	  	success:true,
+	  	user,
+	 // 	token
+	  })
+	//  sendToken(user, 200, res)
+};
+
+routes/auth
+const express = require('express');
+const router = express.Router();
+
+const { registerUser, } = require('../controllers/authController');
+router.post('/register',registerUser);
+// router.post('/login',loginUser);
+
+// router.post('/password/forgot',forgotPassword);
+// router.put('/password/reset/:token',resetPassword);
+
+// router.get('/logout',logout);
+
+module.exports = router;
+
+app.js
+const auth = require('./routes/auth');
+app.use('/api/v1',auth);
+
+.env
+JWT_SECRET = gWlkpvmeYqas79948OiH
+JWT_EXPIRES_TIME = 7d
+COOKIE_EXPIRES_TIME = 7
+
+SMTP_HOST = smtp.mailtrap.io
+SMTP_PORT = 2525
+SMTP_EMAIL = 
+SMTP_PASSWORD = 
+SMTP_FROM_EMAIL = noreply@gmail.com
+SMTP_FROM_NAME = admin
+
+models/user
+userSchema.methods.getJwtToken = function () {
+    return jwt.sign({ id: this._id }, process.env.JWT_SECRET, {
+        expiresIn: process.env.JWT_EXPIRES_TIME
+    });
+}
+
+userSchema.methods.comparePassword = async function (enteredPassword) {
+    return await bcrypt.compare(enteredPassword, this.password)
+}
+
+authController
+exports.loginUser = async (req, res, next) => {
+    const { email, password } = req.body;
+
+    // Checks if email and password is entered by user
+    if (!email || !password) {
+        return next(new ErrorHandler('Please enter email & password', 400))
+    }
+
+    // Finding user in database
+    const user = await User.findOne({ email }).select('+password')
+
+    if (!user) {
+        return res.status(401).json({message: 'Invalid Email or Password'})
+    }
+    // if (!user) {
+    //     return next(new ErrorHandler('Invalid Email or Password', 401));
+    // }
+
+    // Checks if password is correct or not
+    const isPasswordMatched = await user.comparePassword(password);
+
+    // if (!isPasswordMatched) {
+    //     return next(new ErrorHandler('Invalid Email or Password', 401));
+    // }
+    if (!isPasswordMatched) {
+            return res.status(401).json({message: 'Invalid Email or Password'})
+        }
+    const token = user.getJwtToken();
+
+	 res.status(201).json({
+	 	success:true,
+	 	token
+	 });
+    // sendToken(user, 200, res)
+}
+
+const sendToken = (user, statusCode, res) => {
+
+    // Create Jwt token
+    const token = user.getJwtToken();
+
+    // Options for cookie
+    const options = {
+        expires: new Date(
+            Date.now() + process.env.COOKIE_EXPIRES_TIME * 24 * 60 * 60 * 1000
+        ),
+        httpOnly: true
+    }
+    res.status(statusCode).cookie('token', token, options).json({
+        success: true,
+        token,
+        user
+    })
+
+}
+module.exports = sendToken;
+
+middlewares/auth.js
+const User = require('../models/user')
+
+const jwt = require("jsonwebtoken");
+
+
+
+// Checks if user is authenticated or not
+const User = require('../models/user')
+const jwt = require("jsonwebtoken")
+
+exports.isAuthenticatedUser = async (req, res, next) => {
+    const { token } = req.cookies
+    console.log(token)
+
+    if (!token) {
+        return res.statute(401).json({message:'Login first to access this resource'})
+    }
+
+    const decoded = jwt.verify(token, process.env.JWT_SECRET)
+    req.user = await User.findById(decoded.id);
+
+    next()
+};
+
+routes/auth
+const { isAuthenticatedUser, } = require('../middlewares/auth');
+router.get('/products', isAuthenticatedUser,  getProducts)
+
+exports.logout = async (req, res, next) => {
+    res.cookie('token', null, {
+        expires: new Date(Date.now()),
+        httpOnly: true
+    })
+
+    res.status(200).json({
+        success: true,
+        message: 'Logged out'
+    })
+}
+
+router.get('/logout',logout);
+
+exports.authorizeRoles = (...roles) => {
+	console.log(roles);
+    return (req, res, next) => {
+        if (!roles.includes(req.user.role)) {
+            return res.status(403).json({message:`Role (${req.user.role}) is not allowed to acccess this resource`})
+            // return next(
+            //     new ErrorHandler(`Role (${req.user.role}) is not allowed to acccess this resource`, 403))
+        }
+        next()
+    }
+}
+routes/product
+const { isAuthenticatedUser,
+        authorizeRoles 
+    } = require('../middlewares/auth');
+
+outer.get('/products',  isAuthenticatedUser,  authorizeRoles('admin'), getProducts)
+router.post('/admin/product/new', isAuthenticatedUser, authorizeRoles('admin'), newProduct);
+
+router.route('/admin/product/:id').put(isAuthenticatedUser, authorizeRoles('admin'), updateProduct).delete(isAuthenticatedUser, authorizeRoles('admin'), deleteProduct);
+
+model/products
+user: {
+        type: mongoose.Schema.ObjectId,
+        ref: 'User',
+        required: true
+    },
+    
+productcontroller
+exports.newProduct = async (req, res, next) => {
+	console.log(req.user);
+	req.body.user = req.user.id;
+	const product = await Product.create(req.body);
+
+	res.status(201).json({
+		success: true,
+		product
+	})
+}
+
+userSchema.methods.getResetPasswordToken = function () {
+    // Generate token
+    const resetToken = crypto.randomBytes(20).toString('hex');
+
+    // Hash and set to resetPasswordToken
+    this.resetPasswordToken = crypto.createHash('sha256').update(resetToken).digest('hex')
+
+    // Set token expire time
+    this.resetPasswordExpire = Date.now() + 30 * 60 * 1000
+
+    return resetToken
+
+}
+authcontroller
+exports.forgotPassword = async (req, res, next) => {
+    const user = await User.findOne({ email: req.body.email });
+    if (!user) {
+        return res.status(404).json({error: 'User not found with this email'})
+        // return next(new ErrorHandler('User not found with this email', 404));
+    }
+    // Get reset token
+    const resetToken = user.getResetPasswordToken();
+    await user.save({ validateBeforeSave: false });
+    // Create reset password url
+    const resetUrl = `${req.protocol}://${req.get('host')}/password/reset/${resetToken}`;
+    const message = `Your password reset token is as follow:\n\n${resetUrl}\n\nIf you have not requested this email, then ignore it.`
+    try {
+        await sendEmail({
+            email: user.email,
+            subject: 'ShopIT Password Recovery',
+            message
+        })
+
+        res.status(200).json({
+            success: true,
+            message: `Email sent to: ${user.email}`
+        })
+
+    } catch (error) {
+        user.resetPasswordToken = undefined;
+        user.resetPasswordExpire = undefined;
+        await user.save({ validateBeforeSave: false });
+        return res.status(500).json({error: error.message})
+        // return next(new ErrorHandler(error.message, 500))
+    }
+}
+exports.resetPassword = async (req, res, next) => {
+    // Hash URL token
+    const resetPasswordToken = crypto.createHash('sha256').update(req.params.token).digest('hex')
+    const user = await User.findOne({
+        resetPasswordToken,
+        resetPasswordExpire: { $gt: Date.now() }
+    })
+
+    if (!user) {
+        return res.status(400).json({ message: 'Password reset token is invalid or has been expired' })
+        // return next(new ErrorHandler('Password reset token is invalid or has been expired', 400))
+    }
+
+    if (req.body.password !== req.body.confirmPassword) {
+        return res.status(400).json({ message: 'Password does not match' })
+        // return next(new ErrorHandler('Password does not match', 400))
+    }
+
+    // Setup new password
+    user.password = req.body.password;
+    user.resetPasswordToken = undefined;
+    user.resetPasswordExpire = undefined;
+    await user.save();
+    sendToken(user, 200, res);
+}
+
